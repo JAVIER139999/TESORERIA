@@ -244,6 +244,82 @@
     padding: 2px 8px; color: var(--text2);
   }
 
+  /* ── Panel alerta 14 días ── */
+  .alerta-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 16px; margin-bottom: 1.25rem;
+  }
+  .alerta-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .alerta-title { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .alerta-minimo { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
+  .alerta-minimo input { width: 110px; height: 30px; font-size: 12px; }
+
+  .dias-grid { display: grid; grid-template-columns: repeat(14, minmax(0,1fr)); gap: 4px; margin-bottom: 6px; }
+  .dia-col { text-align: center; cursor: pointer; }
+  .dia-col:hover .dia-bar { filter: brightness(0.93); }
+  .dia-etiq { font-size: 10px; color: var(--text3); margin-bottom: 3px; line-height: 1.2; }
+  .dia-bar {
+    border-radius: 6px; padding: 6px 2px 5px;
+    transition: filter .15s, outline .1s;
+    position: relative;
+  }
+  .dia-bar.ok { background: var(--green-bg); }
+  .dia-bar.warn { background: #FAEEDA; }
+  .dia-bar.danger { background: var(--red-bg); }
+  .dia-bar.hoy { outline: 2px solid var(--green); outline-offset: 1px; }
+  .dia-bar.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+  .dia-importe {
+    font-size: 9px; font-weight: 700; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px;
+  }
+  .dia-importe.ok { color: var(--green-txt); }
+  .dia-importe.warn { color: #854F0B; }
+  .dia-importe.danger { color: var(--red-txt); }
+  .dia-mov-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    margin: 3px auto 0; 
+  }
+  .dia-mov-dot.visible { background: currentColor; opacity: 0.5; }
+
+  /* ── Detalle día expandido ── */
+  .dia-detalle {
+    display: none; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: 14px 16px; margin-bottom: 12px;
+    animation: fadeIn .15s ease;
+  }
+  .dia-detalle.open { display: block; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(-4px) } to { opacity:1; transform:translateY(0) } }
+  .detalle-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .detalle-fecha { font-size: 14px; font-weight: 600; color: var(--text); }
+  .detalle-saldo-total { font-size: 18px; font-weight: 700; }
+  .detalle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: 12px; margin-bottom: 5px;
+  }
+  .detalle-row.ingreso { border-left: 3px solid var(--green); }
+  .detalle-row.gasto { border-left: 3px solid var(--red); }
+  .detalle-vacio { font-size: 12px; color: var(--text3); padding: 4px 0; }
+  .detalle-saldo-linea {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; border-radius: var(--radius);
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 12px; margin-top: 8px;
+  }
+
+  .badge-alerta {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--red-bg); color: var(--red-txt);
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px;
+  }
+  .badge-ok {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--green-bg); color: var(--green-txt);
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px;
+  }
+
   /* ── Responsive ── */
   @media (max-width: 900px) {
     .layout { flex-direction: column; padding: 1rem; }
@@ -283,8 +359,24 @@
     <!-- Saldo inicial -->
     <div class="saldo-bar">
       <label>Saldo inicial (€)</label>
-      <input type="number" id="saldoInicial" value="50000" step="100" min="0" oninput="render()">
+      <input type="number" id="saldoInicial" value="50000" step="100" min="0" oninput="renderCards();renderCharts();renderAlerta()">
       <span class="hint">Saldo de caja al inicio del año seleccionado</span>
+    </div>
+
+    <!-- Panel alerta 14 días -->
+    <div class="alerta-panel">
+      <div class="alerta-header">
+        <div class="alerta-title">
+          Liquidez próximas 2 semanas
+          <span id="alertaBadge"></span>
+        </div>
+        <div class="alerta-minimo">
+          <span>Mínimo de caja (€)</span>
+          <input type="number" id="minimoSaldo" value="10000" step="500" min="0" oninput="renderAlerta()">
+        </div>
+      </div>
+      <div class="dias-grid" id="diasGrid"></div>
+      <div class="dia-detalle" id="diaDetalle"></div>
     </div>
 
     <!-- Cards resumen -->
@@ -471,10 +563,149 @@ function partidasAnio() {
   return partidas.filter(p => p.fecha && parseInt(p.fecha.split('-')[0]) === getYear());
 }
 
+// ── Alerta 14 días ──
+let diaSeleccionado = null;
+let diasData = [];
+
+function renderAlerta() {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const minimo = parseFloat($('minimoSaldo').value)||0;
+
+  // Saldo actual = saldo inicial + todo lo pasado estrictamente antes de hoy
+  let saldoHoy = getSaldo();
+  partidas.forEach(p => {
+    if(!p.fecha) return;
+    const fp = new Date(p.fecha+'T00:00:00');
+    if(fp < hoy) saldoHoy += p.tipo==='ingreso' ? p.importe : -p.importe;
+  });
+
+  // Construir array de 14 días
+  diasData = [];
+  for(let i=0;i<14;i++){
+    const d = new Date(hoy); d.setDate(hoy.getDate()+i);
+    const iso = d.toISOString().split('T')[0];
+    const movs = partidas.filter(p=>p.fecha===iso);
+    const neto = movs.reduce((a,p)=>a+(p.tipo==='ingreso'?p.importe:-p.importe),0);
+    diasData.push({d, iso, movs, neto, saldoAntes:0, saldoDespues:0});
+  }
+
+  // Calcular saldo proyectado acumulado
+  let acum = saldoHoy;
+  let hayPeligro = false;
+  diasData.forEach(d => {
+    d.saldoAntes = acum;
+    acum += d.neto;
+    d.saldoDespues = acum;
+    if(acum < minimo) hayPeligro = true;
+  });
+
+  const dias_es = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+  $('diasGrid').innerHTML = diasData.map((d,i) => {
+    const diaSem = dias_es[d.d.getDay()];
+    const diaMes = d.d.getDate();
+    const mes = d.d.toLocaleString('es-ES',{month:'short'}).replace('.','');
+    const esHoy = i===0;
+    const estado = d.saldoDespues < minimo ? 'danger' : d.saldoDespues < minimo*1.3 ? 'warn' : 'ok';
+    const esSelec = diaSeleccionado === d.iso;
+    const saldoK = d.saldoDespues >= 1000000 ? (d.saldoDespues/1000000).toFixed(1)+'M'
+                 : Math.abs(d.saldoDespues) >= 1000 ? (d.saldoDespues/1000).toFixed(0)+'k'
+                 : Math.round(d.saldoDespues)+'';
+    const tieneMovs = d.movs.length > 0;
+    return `<div class="dia-col" onclick="toggleDia('${d.iso}')">
+      <div class="dia-etiq">${diaSem}<br>${diaMes} ${mes}</div>
+      <div class="dia-bar ${estado} ${esHoy?'hoy':''} ${esSelec?'selected':''}">
+        <div class="dia-importe ${estado}">${saldoK}€</div>
+        <div class="dia-mov-dot ${tieneMovs?'visible':''}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  $('alertaBadge').innerHTML = hayPeligro
+    ? `<span class="badge-alerta">⚠ Saldo bajo previsto</span>`
+    : `<span class="badge-ok">✓ Liquidez correcta</span>`;
+
+  // Redibujar detalle si hay uno abierto
+  if(diaSeleccionado) renderDetalleDia(diaSeleccionado);
+}
+
+function toggleDia(iso) {
+  if(diaSeleccionado === iso) {
+    diaSeleccionado = null;
+    $('diaDetalle').classList.remove('open');
+  } else {
+    diaSeleccionado = iso;
+    renderDetalleDia(iso);
+    $('diaDetalle').classList.add('open');
+  }
+  // Re-render grid para actualizar selected
+  renderAlerta();
+}
+
+function renderDetalleDia(iso) {
+  const d = diasData.find(x=>x.iso===iso);
+  if(!d) return;
+  const minimo = parseFloat($('minimoSaldo').value)||0;
+  const estado = d.saldoDespues < minimo ? 'danger' : d.saldoDespues < minimo*1.3 ? 'warn' : 'ok';
+  const colorSaldo = estado==='danger' ? 'var(--red)' : estado==='warn' ? '#BA7517' : 'var(--green)';
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const diasRest = Math.round((new Date(iso+'T00:00:00') - hoy) / 86400000);
+  const etiqDia = diasRest===0 ? 'Hoy' : diasRest===1 ? 'Mañana' : `${d.d.toLocaleDateString('es-ES',{weekday:'long', day:'numeric', month:'long'})}`;
+
+  const ingresos = d.movs.filter(p=>p.tipo==='ingreso');
+  const gastos   = d.movs.filter(p=>p.tipo==='gasto');
+  const totalIng = ingresos.reduce((a,p)=>a+p.importe,0);
+  const totalGas = gastos.reduce((a,p)=>a+p.importe,0);
+
+  const filaMovs = (lista) => lista.length ? lista.map(p=>`
+    <div class="detalle-row ${p.tipo}">
+      <div style="flex:1;min-width:0">
+        <span style="font-weight:500">${p.concepto}</span>
+        <span class="cat-badge" style="margin-left:6px">${p.categoria}</span>
+      </div>
+      <span class="amt ${p.tipo==='ingreso'?'amt-pos':'amt-neg'}" style="margin-left:12px">
+        ${p.tipo==='ingreso'?'+':'-'}${fmt(p.importe)} €
+      </span>
+    </div>`).join('') : '';
+
+  $('diaDetalle').innerHTML = `
+    <div class="detalle-header">
+      <div>
+        <div class="detalle-fecha">${etiqDia}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${fmtD(iso)}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:2px">Saldo al cierre del día</div>
+        <div class="detalle-saldo-total" style="color:${colorSaldo}">${fmt(d.saldoDespues)} €</div>
+      </div>
+    </div>
+
+    <div class="detalle-saldo-linea" style="margin-bottom:10px">
+      <span style="color:var(--text2)">Saldo al inicio del día</span>
+      <span style="font-weight:600">${fmt(d.saldoAntes)} €</span>
+    </div>
+
+    ${ingresos.length ? `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--green-txt);margin-bottom:5px">Cobros</div>${filaMovs(ingresos)}` : ''}
+    ${gastos.length ? `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--red-txt);margin:${ingresos.length?'10px':0} 0 5px">Pagos</div>${filaMovs(gastos)}` : ''}
+    ${!d.movs.length ? `<div class="detalle-vacio">Sin movimientos este día.</div>` : ''}
+
+    <div class="detalle-saldo-linea" style="margin-top:10px">
+      <span style="color:var(--text2)">Movimiento neto del día</span>
+      <span class="amt ${d.neto>=0?'amt-pos':'amt-neg'}" style="font-weight:600">${d.neto>=0?'+':''}${fmt(d.neto)} €</span>
+    </div>
+    ${totalIng>0||totalGas>0 ? `
+    <div style="display:flex;gap:10px;margin-top:6px">
+      ${totalIng>0?`<div style="flex:1;background:var(--green-bg);border-radius:var(--radius);padding:6px 10px;font-size:11px"><span style="color:var(--green-txt);font-weight:600">+${fmt(totalIng)} €</span><br><span style="color:var(--text3)">cobros</span></div>`:''}
+      ${totalGas>0?`<div style="flex:1;background:var(--red-bg);border-radius:var(--radius);padding:6px 10px;font-size:11px"><span style="color:var(--red-txt);font-weight:600">-${fmt(totalGas)} €</span><br><span style="color:var(--text3)">pagos</span></div>`:''}
+    </div>` : ''}
+  `;
+}
+
 // ── Render global ──
 function render() {
   renderCatSelects();
   renderMesFiltro();
+  renderAlerta();
   renderCards();
   renderCharts();
   renderTabla();
