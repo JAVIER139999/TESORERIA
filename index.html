@@ -865,13 +865,13 @@ function addQuick() {
   partidas.push({id:nextId++,concepto:c,tipo:$('qTipo').value,categoria:$('qCat').value,
     fecha:$('qFecha').value||new Date().toISOString().split('T')[0],importe:imp,notas:$('qNotas').value.trim()});
   $('qConcepto').value=''; $('qImporte').value=''; $('qNotas').value='';
-  toast('Partida añadida','ok'); render();
+  guardarDatos(); toast('Partida añadida','ok'); render();
 }
 
 function eliminar(id) {
   if(!confirm('¿Eliminar esta partida?')) return;
   partidas = partidas.filter(p=>p.id!==id);
-  render(); toast('Partida eliminada');
+  guardarDatos(); render(); toast('Partida eliminada');
 }
 
 function abrirModal(id=null) {
@@ -897,7 +897,7 @@ function guardarModal() {
     fecha:$('mFecha').value,importe:imp,notas:$('mNotas').value.trim()};
   if(editId){const i=partidas.findIndex(x=>x.id===editId);partidas[i]=p;}
   else partidas.push(p);
-  cerrarModal(); render(); toast('Guardado correctamente','ok');
+  cerrarModal(); guardarDatos(); render(); toast('Guardado correctamente','ok');
 }
 
 // ── CSV Import ──
@@ -924,6 +924,7 @@ function importarCSV(file) {
       ok++;
     });
     render();
+    guardarDatos();
     toast(`CSV importado: ${ok} partidas${err>0?`, ${err} omitidas`:''}`, ok>0?'ok':'err');
     $('csvInput').value='';
   };
@@ -954,9 +955,21 @@ function toast(msg, type='') {
   t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2800);
 }
 
+// ── Persistencia localStorage ──
+function guardarDatos() {
+  try { localStorage.setItem('tesoreria_partidas', JSON.stringify(partidas)); } catch(e) {}
+}
+function cargarDatos() {
+  try {
+    const saved = localStorage.getItem('tesoreria_partidas');
+    if(saved) { partidas = JSON.parse(saved); nextId = Math.max(...partidas.map(p=>p.id), 0) + 1; }
+  } catch(e) {}
+}
+
 // ── Init ──
 $('modalOverlay').addEventListener('click',e=>{if(e.target===$('modalOverlay'))cerrarModal();});
 $('qFecha').value = new Date().toISOString().split('T')[0];
+cargarDatos();
 render();
 </script>
 </body>
