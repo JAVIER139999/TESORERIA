@@ -254,7 +254,13 @@
   .alerta-minimo { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
   .alerta-minimo input { width: 110px; height: 30px; font-size: 12px; }
 
-  .dias-grid { display: grid; grid-template-columns: repeat(14, minmax(0,1fr)); gap: 4px; margin-bottom: 6px; }
+  .vista-btn { color: var(--text2); }
+  .vista-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .dias-grid { display: grid; gap: 4px; margin-bottom: 6px; }
+  .dias-grid.cols-7  { grid-template-columns: repeat(7,  minmax(0,1fr)); }
+  .dias-grid.cols-14 { grid-template-columns: repeat(14, minmax(0,1fr)); }
+  .dias-grid.cols-mes { grid-template-columns: repeat(7, minmax(0,1fr)); gap: 4px; }
+  .semana-sep { grid-column: 1 / -1; height: 0; border-top: 1px dashed var(--border); margin: 2px 0; }
   .dia-col { text-align: center; cursor: pointer; }
   .dia-col:hover .dia-bar { filter: brightness(0.93); }
   .dia-etiq { font-size: 10px; color: var(--text3); margin-bottom: 3px; line-height: 1.2; }
@@ -364,16 +370,36 @@
       <span class="hint" id="saldoHint">Saldo de caja al inicio del año seleccionado</span>
     </div>
 
-    <!-- Panel alerta 14 días -->
+    <!-- Panel liquidez -->
     <div class="alerta-panel">
       <div class="alerta-header">
         <div class="alerta-title">
-          Liquidez próximas 2 semanas
+          Previsión de liquidez
           <span id="alertaBadge"></span>
         </div>
-        <div class="alerta-minimo">
-          <span>Mínimo de caja (€)</span>
-          <input type="number" id="minimoSaldo" value="10000" step="500" min="0" oninput="renderAlerta()">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="alerta-minimo">
+            <span>Mínimo (€)</span>
+            <input type="number" id="minimoSaldo" value="10000" step="500" min="0" oninput="renderAlerta()">
+          </div>
+          <div style="display:flex;gap:4px" id="vistaToggle">
+            <button class="btn btn-sm vista-btn active" data-vista="2s" onclick="setVista('2s')">2 semanas</button>
+            <button class="btn btn-sm vista-btn" data-vista="mes" onclick="setVista('mes')">Mes</button>
+            <button class="btn btn-sm vista-btn" data-vista="anio" onclick="setVista('anio')">Año completo</button>
+          </div>
+          <div id="mesFiltroLiq" style="display:none">
+            <select id="selMesLiq" onchange="renderAlerta()" style="height:30px;font-size:12px">
+              <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
+              <option value="3">Abril</option><option value="4">Mayo</option><option value="5">Junio</option>
+              <option value="6">Julio</option><option value="7">Agosto</option><option value="8">Septiembre</option>
+              <option value="9">Octubre</option><option value="10">Noviembre</option><option value="11">Diciembre</option>
+            </select>
+          </div>
+          <div id="semFiltroLiq" style="display:none;align-items:center;gap:4px">
+            <button class="btn btn-sm" onclick="cambiarSemana(-1)">‹</button>
+            <span id="semLabel" style="font-size:12px;color:var(--text2);white-space:nowrap;min-width:140px;text-align:center"></span>
+            <button class="btn btn-sm" onclick="cambiarSemana(1)">›</button>
+          </div>
         </div>
       </div>
       <div class="dias-grid" id="diasGrid"></div>
@@ -564,82 +590,173 @@ function partidasAnio() {
   return partidas.filter(p => p.fecha && parseInt(p.fecha.split('-')[0]) === getYear());
 }
 
-// ── Alerta 14 días ──
+// ── Liquidez vista ──
+let vistaActual = '2s';
+let semOffset = 0;
 let diaSeleccionado = null;
 let diasData = [];
 
-function renderAlerta() {
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const minimo = parseFloat($('minimoSaldo').value)||0;
+function setVista(v) {
+  vistaActual = v;
+  semOffset = 0;
+  diaSeleccionado = null;
+  $('diaDetalle').classList.remove('open');
+  document.querySelectorAll('.vista-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === v));
+  $('mesFiltroLiq').style.display  = v === 'mes'  ? 'block' : 'none';
+  $('semFiltroLiq').style.display  = v === '2s'   ? 'flex'  : 'none';
+  if(v === 'mes') {
+    const hoy = new Date();
+    $('selMesLiq').value = hoy.getMonth();
+  }
+  renderAlerta();
+}
 
-  // Saldo actual = saldo inicial + todo lo pasado estrictamente antes de hoy
-  let saldoHoy = getSaldo();
+function cambiarSemana(dir) {
+  semOffset += dir;
+  diaSeleccionado = null;
+  $('diaDetalle').classList.remove('open');
+  renderAlerta();
+}
+
+function getDiasRango() {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const yr  = getYear();
+  let inicio, fin;
+
+  if(vistaActual === '2s') {
+    inicio = new Date(hoy); inicio.setDate(inicio.getDate() + semOffset * 14);
+    fin    = new Date(inicio); fin.setDate(fin.getDate() + 13);
+    const di = inicio.toLocaleDateString('es-ES',{day:'numeric',month:'short'});
+    const df = fin.toLocaleDateString('es-ES',{day:'numeric',month:'short'});
+    $('semLabel').textContent = `${di} – ${df}`;
+  } else if(vistaActual === 'mes') {
+    const mes = parseInt($('selMesLiq').value);
+    inicio = new Date(yr, mes, 1);
+    fin    = new Date(yr, mes+1, 0);
+  } else {
+    inicio = new Date(yr, 0, 1);
+    fin    = new Date(yr, 11, 31);
+  }
+
+  const dias = [];
+  const cur = new Date(inicio);
+  while(cur <= fin) {
+    dias.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return { dias, inicio };
+}
+
+// ── Alerta / Liquidez ──
+function renderAlerta() {
+  const minimo = parseFloat($('minimoSaldo').value)||0;
+  const yr     = getYear();
+  const hoy    = new Date(); hoy.setHours(0,0,0,0);
+
+  // Saldo acumulado hasta el inicio del año
+  let saldoBase = getSaldo();
+  // Añadir todo lo anterior al rango visible
+  const { dias, inicio } = getDiasRango();
+  const inicioISO = inicio.toISOString().split('T')[0];
+
+  // Acumular partidas anteriores al inicio del rango pero dentro del año
   partidas.forEach(p => {
     if(!p.fecha) return;
     const fp = new Date(p.fecha+'T00:00:00');
-    if(fp < hoy) saldoHoy += p.tipo==='ingreso' ? p.importe : -p.importe;
+    const fy = parseInt(p.fecha.split('-')[0]);
+    // Solo contar partidas del año seleccionado que sean antes del inicio del rango
+    if(fy === yr && fp < inicio) {
+      saldoBase += p.tipo==='ingreso' ? p.importe : -p.importe;
+    }
   });
 
-  // Construir array de 14 días
-  diasData = [];
-  for(let i=0;i<14;i++){
-    const d = new Date(hoy); d.setDate(hoy.getDate()+i);
-    const iso = d.toISOString().split('T')[0];
-    const movs = partidas.filter(p=>p.fecha===iso);
-    const neto = movs.reduce((a,p)=>a+(p.tipo==='ingreso'?p.importe:-p.importe),0);
-    diasData.push({d, iso, movs, neto, saldoAntes:0, saldoDespues:0});
-  }
+  // Construir diasData
+  diasData = dias.map(d => {
+    const iso  = d.toISOString().split('T')[0];
+    const movs = partidas.filter(p => p.fecha === iso);
+    const neto = movs.reduce((a,p) => a + (p.tipo==='ingreso' ? p.importe : -p.importe), 0);
+    return { d, iso, movs, neto, saldoAntes:0, saldoDespues:0 };
+  });
 
-  // Calcular saldo proyectado acumulado
-  let acum = saldoHoy;
+  let acum = saldoBase;
   let hayPeligro = false;
   diasData.forEach(d => {
-    d.saldoAntes = acum;
-    acum += d.neto;
+    d.saldoAntes   = acum;
+    acum          += d.neto;
     d.saldoDespues = acum;
     if(acum < minimo) hayPeligro = true;
   });
 
   const dias_es = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
-  $('diasGrid').innerHTML = diasData.map((d,i) => {
-    const diaSem = dias_es[d.d.getDay()];
-    const diaMes = d.d.getDate();
-    const mes = d.d.toLocaleString('es-ES',{month:'short'}).replace('.','');
-    const esHoy = i===0;
-    const estado = d.saldoDespues < minimo ? 'danger' : d.saldoDespues < minimo*1.3 ? 'warn' : 'ok';
+  // Elegir clase de grid
+  const grid = $('diasGrid');
+  if(vistaActual === '2s')        grid.className = 'dias-grid cols-14';
+  else if(vistaActual === 'mes')  grid.className = 'dias-grid cols-mes';
+  else                            grid.className = 'dias-grid cols-7';
+
+  const renderDia = (d, i) => {
+    const diaSem  = dias_es[d.d.getDay()];
+    const diaMes  = d.d.getDate();
+    const mes     = d.d.toLocaleString('es-ES',{month:'short'}).replace('.','');
+    const esHoy   = d.iso === hoy.toISOString().split('T')[0];
+    const estado  = d.saldoDespues < minimo ? 'danger' : d.saldoDespues < minimo*1.3 ? 'warn' : 'ok';
     const esSelec = diaSeleccionado === d.iso;
-    const saldoK = d.saldoDespues >= 1000000 ? (d.saldoDespues/1000000).toFixed(1)+'M'
-                 : Math.abs(d.saldoDespues) >= 1000 ? (d.saldoDespues/1000).toFixed(0)+'k'
-                 : Math.round(d.saldoDespues)+'';
+    const saldo   = d.saldoDespues;
+    const saldoK  = Math.abs(saldo) >= 1000000 ? (saldo/1000000).toFixed(1)+'M'
+                  : Math.abs(saldo) >= 1000     ? (saldo/1000).toFixed(0)+'k'
+                  : Math.round(saldo)+'';
     const tieneMovs = d.movs.length > 0;
+    // En vista año mostramos etiqueta más corta
+    const etiq = vistaActual === 'anio'
+      ? `<div class="dia-etiq">${diaSem.slice(0,1)}<br>${diaMes}${diaMes===1?' '+mes:''}</div>`
+      : `<div class="dia-etiq">${diaSem}<br>${diaMes} ${mes}</div>`;
     return `<div class="dia-col" onclick="toggleDia('${d.iso}')">
-      <div class="dia-etiq">${diaSem}<br>${diaMes} ${mes}</div>
+      ${etiq}
       <div class="dia-bar ${estado} ${esHoy?'hoy':''} ${esSelec?'selected':''}">
         <div class="dia-importe ${estado}">${saldoK}€</div>
         <div class="dia-mov-dot ${tieneMovs?'visible':''}"></div>
       </div>
     </div>`;
-  }).join('');
+  };
+
+  if(vistaActual === 'anio') {
+    // Agrupar por semanas (filas de 7), con cabecera de mes cuando cambia
+    let html = '';
+    let mesActual = -1;
+    // Rellenar días vacíos al principio para alinear con día de semana
+    const primerDia = diasData[0].d.getDay(); // 0=Dom
+    for(let p=0; p<primerDia; p++) html += `<div></div>`;
+    diasData.forEach((d, i) => {
+      if(d.d.getMonth() !== mesActual) {
+        mesActual = d.d.getMonth();
+        // si no es el primero, cerrar semana y poner cabecera
+        if(i > 0) html += `<div class="semana-sep"></div>`;
+      }
+      html += renderDia(d, i);
+    });
+    grid.innerHTML = html;
+  } else {
+    grid.innerHTML = diasData.map(renderDia).join('');
+  }
 
   $('alertaBadge').innerHTML = hayPeligro
     ? `<span class="badge-alerta">⚠ Saldo bajo previsto</span>`
     : `<span class="badge-ok">✓ Liquidez correcta</span>`;
 
-  // Redibujar detalle si hay uno abierto
   if(diaSeleccionado) renderDetalleDia(diaSeleccionado);
 }
 
 function toggleDia(iso) {
-  if(diaSeleccionado === iso) {
-    diaSeleccionado = null;
-    $('diaDetalle').classList.remove('open');
-  } else {
-    diaSeleccionado = iso;
-    renderDetalleDia(iso);
-    $('diaDetalle').classList.add('open');
+  diaSeleccionado = diaSeleccionado === iso ? null : iso;
+  if(!diaSeleccionado) $('diaDetalle').classList.remove('open');
+  else { renderDetalleDia(iso); $('diaDetalle').classList.add('open'); }
+  // Actualizar solo el estado selected en el grid sin re-renderizar todo
+  document.querySelectorAll('.dia-bar').forEach(el => el.classList.remove('selected'));
+  if(diaSeleccionado) {
+    const cols = document.querySelectorAll('.dia-col');
+    cols.forEach(col => { if(col.onclick && col.getAttribute('onclick') && col.outerHTML.includes(`'${diaSeleccionado}'`)) col.querySelector('.dia-bar')?.classList.add('selected'); });
   }
-  // Re-render grid para actualizar selected
   renderAlerta();
 }
 
@@ -982,6 +1099,7 @@ function cargarDatos() {
 // ── Init ──
 $('modalOverlay').addEventListener('click',e=>{if(e.target===$('modalOverlay'))cerrarModal();});
 $('qFecha').value = new Date().toISOString().split('T')[0];
+$('semFiltroLiq').style.display = 'flex';
 cargarDatos();
 render();
 </script>
